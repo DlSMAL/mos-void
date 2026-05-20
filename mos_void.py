@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import random
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 
 @dataclass
@@ -114,7 +114,8 @@ class MosVoidGame:
     def salvage_run(self) -> str:
         s = self.state
         base = random.randint(14, 26)
-        haul = base + (s.salvage_level * random.randint(4, 8))
+        level_bonus = s.salvage_level * 6
+        haul = base + level_bonus + random.randint(-3, 3)
         if "focus" in s.active_buffs:
             haul += 8
         s.credits += haul
@@ -230,17 +231,21 @@ class MosVoidGame:
             choice = input("Buy what? > ").strip()
             if choice == "0":
                 return
-            if not choice.isdigit() or not (1 <= int(choice) <= len(self.shop_items)):
+            if not choice.isdigit():
                 print("Invalid pick.")
                 continue
-            item = self.shop_items[int(choice) - 1]
+            item_index = int(choice)
+            if not (1 <= item_index <= len(self.shop_items)):
+                print("Invalid pick.")
+                continue
+            item = self.shop_items[item_index - 1]
             if s.credits < item.cost:
                 print("Not enough credits.")
                 continue
             s.credits -= item.cost
             print(item.apply(s))
 
-    def check_end_conditions(self) -> str | None:
+    def check_end_conditions(self) -> Optional[str]:
         s = self.state
         if s.health <= 0:
             s.running = False
