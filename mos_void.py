@@ -40,6 +40,16 @@ BEACON_ART = r"""
           /________\
 """
 
+MISSION_DEFINITIONS = [
+    ("Complete 2 salvage runs today", "salvage", 2, 30, 5),
+    ("Train 2 times today", "train", 2, 22, 6),
+    ("Engineer beacon once today", "engineer", 1, 20, 8),
+    ("Scout the rift 2 times today", "scout", 2, 24, 6),
+]
+CRAFT_SCRAP_COST = 8
+BEACON_EVENT_THRESHOLD = 0.62
+BEACON_EVENT_MIN_LEVEL = 2
+
 
 @dataclass
 class Item:
@@ -198,12 +208,7 @@ class MosVoidGame:
     # --- Mission helpers ---
     def roll_daily_mission(self) -> None:
         s = self.state
-        mission_pool = [
-            DailyMission("Complete 2 salvage runs today", "salvage", 2, 30, 5),
-            DailyMission("Train 2 times today", "train", 2, 22, 6),
-            DailyMission("Engineer beacon once today", "engineer", 1, 20, 8),
-            DailyMission("Scout the rift 2 times today", "scout", 2, 24, 6),
-        ]
+        mission_pool = [DailyMission(*definition) for definition in MISSION_DEFINITIONS]
         s.daily_mission = random.choice(mission_pool)
 
     def update_mission(self, kind: str) -> Optional[str]:
@@ -242,7 +247,7 @@ class MosVoidGame:
         s.pressure += s.scaled(random.randint(1, 5))
         s.detail_score += s.scaled(6, reward=True)
         s.clamp()
-        return f"Salvage run pulled {haul} credits and {s.drone_level + 1} intel packets."
+        return f"Salvage run pulled {haul} credits and boosted your scrap reserves."
 
     def rest(self) -> str:
         s = self.state
@@ -301,9 +306,9 @@ class MosVoidGame:
 
     def craft_from_scrap(self) -> str:
         s = self.state
-        if s.scrap < 8:
-            return "Need at least 8 scrap to craft field gear."
-        s.scrap -= 8
+        if s.scrap < CRAFT_SCRAP_COST:
+            return f"Need at least {CRAFT_SCRAP_COST} scrap to craft field gear."
+        s.scrap -= CRAFT_SCRAP_COST
         pick = random.choice(["kit", "filter", "scanner"])
         if pick == "kit":
             s.health += s.scaled(14, reward=True)
@@ -354,7 +359,7 @@ class MosVoidGame:
             s.clamp()
             return f"Signal anomaly mapped. Escape route clarity +{gain}%."
 
-        if roll < 0.62 and s.beacon_level >= 2:
+        if roll < BEACON_EVENT_THRESHOLD and s.beacon_level >= BEACON_EVENT_MIN_LEVEL:
             beacon_bonus = s.scaled(random.randint(8, 14), reward=True)
             s.escape_progress += beacon_bonus
             s.mood += s.scaled(4, reward=True)
