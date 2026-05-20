@@ -2,7 +2,11 @@
 
 A terminal simulator/tycoon game where Mo is trapped in the void.
 
-## Play
+## Play (HTML)
+
+Open `/home/runner/work/mos-void/mos-void/index.html` in your browser.
+
+## Play (Terminal)
 
 ```bash
 python mos_void.py

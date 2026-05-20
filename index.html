@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mo's Void</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background: #07090f;
+      color: #e7ecff;
+    }
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+    .panel {
+      border: 1px solid #2d365a;
+      background: #111731;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    h1, h2 { margin: 0 0 8px; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      color: #b9c7ff;
+      font-size: 12px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 8px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 6px;
+    }
+    .stat { background: #0a1022; border: 1px solid #263052; border-radius: 6px; padding: 6px; }
+    .actions, .shop-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 8px;
+    }
+    button, select {
+      background: #1c2550;
+      color: #e7ecff;
+      border: 1px solid #3c4b82;
+      border-radius: 6px;
+      padding: 8px;
+      font: inherit;
+    }
+    button:hover { background: #243069; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .log {
+      min-height: 180px;
+      max-height: 300px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #090f1f;
+      border: 1px solid #263052;
+      border-radius: 6px;
+      padding: 8px;
+      line-height: 1.35;
+    }
+    .muted { color: #9eb0ef; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel">
+      <h1>Mo's Void (HTML)</h1>
+      <pre>Guide Mo through the void. Reach 100% escape progress with Beacon Level 3+.</pre>
+      <div class="grid" style="margin-top: 8px;">
+        <label>
+          Difficulty
+          <select id="difficulty">
+            <option value="chill">Chill</option>
+            <option value="standard" selected>Standard</option>
+            <option value="nightmare">Nightmare</option>
+          </select>
+        </label>
+        <button id="startBtn">Start New Run</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Status</h2>
+      <div id="status" class="stats"></div>
+      <p id="mission" class="muted"></p>
+      <p id="buffs" class="muted"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Actions</h2>
+      <div class="actions">
+        <button data-action="1">Salvage run</button>
+        <button data-action="2">Rest</button>
+        <button data-action="3">Train</button>
+        <button data-action="4">Engineer beacon</button>
+        <button data-action="5">Scout rift</button>
+        <button data-action="6">Craft from scrap</button>
+        <button id="toggleShop">Shop</button>
+        <button data-action="8">End run</button>
+      </div>
+    </section>
+
+    <section class="panel" id="shopPanel" hidden>
+      <h2>Void Shop</h2>
+      <div id="shopList" class="shop-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Log</h2>
+      <div id="log" class="log"></div>
+    </section>
+  </main>
+
+  <script>
+    const MISSION_DEFINITIONS = [
+      ["Complete 2 salvage runs today", "salvage", 2, 30, 5],
+      ["Train 2 times today", "train", 2, 22, 6],
+      ["Engineer beacon once today", "engineer", 1, 20, 8],
+      ["Scout the rift 2 times today", "scout", 2, 24, 6],
+    ];
+
+    const CRAFT_SCRAP_COST = 8;
+    const BEACON_EVENT_THRESHOLD = 0.62;
+    const BEACON_EVENT_MIN_LEVEL = 2;
+    const MAX_DRONE_LEVEL = 3;
+    const WIN_BEACON_LEVEL = 3;
+    const MAX_BEACON_LEVEL = 4;
+    const BEACON_CORE_PROGRESS_BONUS = 9;
+    const BEACON_ENGINEERING_MULTIPLIER = 3;
+
+    const state = {};
+
+    const shopItems = [
+      { name: "Ration Crate", cost: 25, description: "+3 food", apply: buyRations },
+      { name: "Comfy Blanket", cost: 40, description: "+12 mood, +8 energy", apply: buyBlanket },
+      { name: "Med Patch", cost: 45, description: "+22 health", apply: buyMedPatch },
+      { name: "Scrap Magnet", cost: 65, description: "Permanent +1 salvage level", apply: buyMagnet },
+      { name: "Scout Drone", cost: 90, description: "Permanent +1 drone level", apply: buyDrone },
+      { name: "Beacon Core", cost: 95, description: "Upgrade rescue beacon", apply: buyBeaconCore },
+      { name: "Null Shield", cost: 90, description: "Reduce pressure gain for 4 days", apply: buyNullShield },
+    ];
+
+    const statusEl = document.getElementById("status");
+    const missionEl = document.getElementById("mission");
+    const buffsEl = document.getElementById("buffs");
+    const logEl = document.getElementById("log");
+    const shopPanel = document.getElementById("shopPanel");
+    const shopList = document.getElementById("shopList");
+
+    function randomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function scaled(value, reward = false) {
+      const factor = reward ? state.rewardScale : state.decayScale;
+      return Math.round(value * factor);
+    }
+
+    function clamp() {
+      state.health = Math.max(0, Math.min(100, state.health));
+      state.energy = Math.max(0, Math.min(100, state.energy));
+      state.mood = Math.max(0, Math.min(100, state.mood));
+      state.pressure = Math.max(0, Math.min(100, state.pressure));
+      state.escapeProgress = Math.max(0, Math.min(100, state.escapeProgress));
+    }
+
+    function tickBuffs() {
+      for (const [name, turns] of Object.entries(state.activeBuffs)) {
+        const next = turns - 1;
+        if (next <= 0) {
+          delete state.activeBuffs[name];
+        } else {
+          state.activeBuffs[name] = next;
+        }
+      }
+    }
+
+    function dailyDecay() {
+      if (state.food > 0) {
+        state.food -= 1;
+        state.energy += scaled(2);
+      } else {
+        state.health -= scaled(10);
+        state.mood -= scaled(8);
+      }
+      state.energy -= scaled(7);
+      state.mood -= scaled(5);
+      state.pressure += scaled(4);
+      tickBuffs();
+      clamp();
+    }
+
+    function rollDailyMission() {
+      const [text, kind, goal, rewardCredits, rewardProgress] = MISSION_DEFINITIONS[randomInt(0, MISSION_DEFINITIONS.length - 1)];
+      state.dailyMission = { text, kind, goal, rewardCredits, rewardProgress, progress: 0, completed: false };
+    }
+
+    function updateMission(kind) {
+      const m = state.dailyMission;
+      if (!m || m.completed || m.kind !== kind) return null;
+      m.progress += 1;
+      if (m.progress >= m.goal) {
+        m.completed = true;
+        const creditReward = scaled(m.rewardCredits, true);
+        const progressReward = scaled(m.rewardProgress, true);
+        state.credits += creditReward;
+        state.escapeProgress += progressReward;
+        state.detailScore += scaled(15, true);
+        clamp();
+        return `Mission complete! +${creditReward} credits, +${progressReward}% progress.`;
+      }
+      return `Mission progress: ${m.progress}/${m.goal}`;
+    }
+
+    function salvageRun() {
+      const base = randomInt(14, 26);
+      const levelBonus = state.salvageLevel * 6;
+      const droneBonus = state.droneLevel * 4;
+      let haul = base + levelBonus + droneBonus + randomInt(-3, 3);
+      if ("focus" in state.activeBuffs) haul += 8;
+      haul = scaled(haul, true);
+      state.credits += haul;
+      state.scrap += randomInt(1, 4) + state.droneLevel;
+      state.energy -= scaled(randomInt(9, 15));
+      state.health -= scaled(randomInt(2, 7));
+      state.escapeProgress += scaled(randomInt(1, 5), true);
+      state.pressure += scaled(randomInt(1, 5));
+      state.detailScore += scaled(6, true);
+      clamp();
+      return `Salvage run pulled ${haul} credits and boosted your scrap reserves.`;
+    }
+
+    function rest() {
+      if (state.food <= 0) {
+        state.mood -= scaled(4);
+        clamp();
+        return "No food to rest properly. Mo feels rough.";
+      }
+      state.energy += scaled(randomInt(16, 24), true);
+      state.health += scaled(randomInt(6, 10), true);
+      state.mood += scaled(randomInt(5, 9), true);
+      state.pressure -= scaled(randomInt(2, 6), true);
+      state.detailScore += scaled(3, true);
+      clamp();
+      return "Mo gets real rest in a quiet void pocket.";
+    }
+
+    function train() {
+      state.energy -= scaled(randomInt(7, 12));
+      state.health += scaled(randomInt(4, 8), true);
+      state.mood += scaled(randomInt(2, 7), true);
+      state.escapeProgress += scaled(randomInt(2, 6), true);
+      state.activeBuffs.focus = 3;
+      state.detailScore += scaled(8, true);
+      clamp();
+      return "Mo trains hard and enters focus mode for 3 days.";
+    }
+
+    function engineer() {
+      if (state.beaconLevel === 0) {
+        state.escapeProgress += scaled(randomInt(1, 3), true);
+        state.energy -= scaled(8);
+        clamp();
+        return "Mo sketches a rough beacon plan. Need a Beacon Core soon.";
+      }
+      const gain = scaled(randomInt(5, 12) + (BEACON_ENGINEERING_MULTIPLIER * state.beaconLevel), true);
+      state.escapeProgress += gain;
+      state.energy -= scaled(randomInt(8, 13));
+      state.mood += scaled(randomInt(1, 4), true);
+      state.pressure += scaled(randomInt(0, 3));
+      state.detailScore += scaled(10, true);
+      clamp();
+      return `Beacon engineering session successful: +${gain}% escape progress.`;
+    }
+
+    function scoutRift() {
+      const foundFood = randomInt(0, 2) + state.droneLevel;
+      const foundScrap = randomInt(2, 7) + state.droneLevel;
+      let stress = randomInt(2, 6);
+      if ("null_shield" in state.activeBuffs) stress = Math.max(1, stress - 2);
+      state.food += foundFood;
+      state.scrap += foundScrap;
+      state.energy -= scaled(randomInt(6, 11));
+      state.mood += scaled(randomInt(1, 5), true);
+      state.pressure += scaled(stress);
+      state.detailScore += scaled(7, true);
+      clamp();
+      return `Rift scouting found ${foundFood} food and ${foundScrap} scrap.`;
+    }
+
+    function craftFromScrap() {
+      if (state.scrap < CRAFT_SCRAP_COST) {
+        return `Need at least ${CRAFT_SCRAP_COST} scrap to craft field gear.`;
+      }
+      state.scrap -= CRAFT_SCRAP_COST;
+      const pick = ["kit", "filter", "scanner"][randomInt(0, 2)];
+      let result;
+      if (pick === "kit") {
+        state.health += scaled(14, true);
+        state.energy += scaled(8, true);
+        result = "Mo crafted a med kit.";
+      } else if (pick === "filter") {
+        state.pressure -= scaled(12, true);
+        state.mood += scaled(6, true);
+        result = "Mo built a void filter and stabilized camp air.";
+      } else {
+        state.activeBuffs.focus = 4;
+        state.escapeProgress += scaled(6, true);
+        result = "Mo assembled a deep scanner. Focus extends to 4 days.";
+      }
+      state.detailScore += scaled(12, true);
+      clamp();
+      return result;
+    }
+
+    function randomEvent() {
+      const roll = Math.random();
+      const shielded = "null_shield" in state.activeBuffs;
+
+      if (roll < 0.14) {
+        const bonus = scaled(randomInt(15, 40), true);
+        state.credits += bonus;
+        return `Lucky void cache discovered: +${bonus} credits.`;
+      }
+
+      if (roll < 0.28) {
+        const dmg = scaled(randomInt(6, 13));
+        let pressureHit = scaled(randomInt(4, 9));
+        if (shielded) pressureHit = Math.floor(pressureHit / 2);
+        state.health -= dmg;
+        state.pressure += pressureHit;
+        clamp();
+        return "A void storm tears through camp. Mo hangs on.";
+      }
+
+      if (roll < 0.42) {
+        state.food += randomInt(1, 3);
+        state.mood += scaled(5, true);
+        clamp();
+        return "A friendly drifter trades supplies with Mo.";
+      }
+
+      if (roll < 0.54) {
+        const gain = scaled(randomInt(3, 8), true);
+        state.escapeProgress += gain;
+        clamp();
+        return `Signal anomaly mapped. Escape route clarity +${gain}%.`;
+      }
+
+      if (roll < BEACON_EVENT_THRESHOLD && state.beaconLevel >= BEACON_EVENT_MIN_LEVEL) {
+        const beaconBonus = scaled(randomInt(8, 14), true);
+        state.escapeProgress += beaconBonus;
+        state.mood += scaled(4, true);
+        clamp();
+        return `Beacon pulse synced perfectly: +${beaconBonus}% progress.`;
+      }
+
+      return "Quiet day in the void... for now.";
+    }
+
+    function buyRations() {
+      state.food += 3;
+      return "Mo stocked up on rations. No starving today.";
+    }
+
+    function buyBlanket() {
+      state.mood += 12;
+      state.energy += 8;
+      clamp();
+      return "Mo wraps up in the cosmic blanket and chills out.";
+    }
+
+    function buyMedPatch() {
+      state.health += 22;
+      clamp();
+      return "Med patch applied. Bruises and void burns fading.";
+    }
+
+    function buyMagnet() {
+      if (state.purchasedUpgrades.has("Scrap Magnet")) return "Already installed.";
+      state.salvageLevel += 1;
+      state.purchasedUpgrades.add("Scrap Magnet");
+      return "Scrap Magnet online: salvage runs are stronger now.";
+    }
+
+    function buyDrone() {
+      if (state.droneLevel >= MAX_DRONE_LEVEL) return "Scout Drone is already maxed out.";
+      state.droneLevel += 1;
+      state.escapeProgress += scaled(3, true);
+      clamp();
+      return `Scout Drone upgraded to level ${state.droneLevel}. Mapping improves.`;
+    }
+
+    function buyBeaconCore() {
+      if (state.beaconLevel >= MAX_BEACON_LEVEL) return "Beacon is already maxed out.";
+      state.beaconLevel += 1;
+      state.escapeProgress += scaled(BEACON_CORE_PROGRESS_BONUS, true);
+      clamp();
+      return `Beacon boosted to level ${state.beaconLevel}. Rescue signal intensifies.`;
+    }
+
+    function buyNullShield() {
+      state.activeBuffs.null_shield = 4;
+      return "Null Shield activated: pressure rises slower for 4 days.";
+    }
+
+    function checkEndConditions() {
+      if (state.health <= 0) return "Mo couldn't survive the void. Run failed.";
+      if (state.energy <= 0) return "Mo collapsed from exhaustion. Run failed.";
+      if (state.pressure >= 100) return "The void consumed the camp. Run failed.";
+      if (state.escapeProgress >= 100 && state.beaconLevel >= WIN_BEACON_LEVEL) {
+        return "Rescue lock achieved! Mo escapes the void in style!";
+      }
+      return null;
+    }
+
+    function performAction(choice) {
+      const actionMap = {
+        "1": [salvageRun, "salvage"],
+        "2": [rest, "rest"],
+        "3": [train, "train"],
+        "4": [engineer, "engineer"],
+        "5": [scoutRift, "scout"],
+        "6": [craftFromScrap, "craft"],
+      };
+      if (!(choice in actionMap)) return;
+      const [handler, missionKind] = actionMap[choice];
+      let result = handler();
+      const missionText = updateMission(missionKind);
+      if (missionText) result += "\n" + missionText;
+      appendLog(result);
+
+      appendLog("Event: " + randomEvent());
+
+      if ("null_shield" in state.activeBuffs) {
+        state.pressure = Math.max(0, state.pressure - scaled(2, true));
+      }
+
+      dailyDecay();
+
+      const ending = checkEndConditions();
+      if (ending) {
+        state.running = false;
+        appendLog("\n" + ending + "\nRun ended.");
+      } else {
+        state.day += 1;
+      }
+
+      if (!state.dailyMission || state.dailyMission.completed) {
+        rollDailyMission();
+      }
+
+      render();
+    }
+
+    function appendLog(text) {
+      logEl.textContent += (logEl.textContent ? "\n" : "") + `[Day ${state.day}] ${text}`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function render() {
+      statusEl.innerHTML = "";
+      const rows = [
+        ["Day", state.day],
+        ["Difficulty", state.difficulty],
+        ["Detail score", state.detailScore],
+        ["Credits", state.credits],
+        ["Scrap", state.scrap],
+        ["Food", state.food],
+        ["Beacon Lv", state.beaconLevel],
+        ["Drone Lv", state.droneLevel],
+        ["Health", state.health],
+        ["Energy", state.energy],
+        ["Mood", state.mood],
+        ["Void Pressure", state.pressure],
+        ["Escape Progress", state.escapeProgress + "%"],
+      ];
+      for (const [label, value] of rows) {
+        const div = document.createElement("div");
+        div.className = "stat";
+        div.textContent = `${label}: ${value}`;
+        statusEl.appendChild(div);
+      }
+
+      const m = state.dailyMission;
+      if (m) {
+        const status = m.completed ? "DONE" : `${m.progress}/${m.goal}`;
+        missionEl.textContent = `Daily Mission: ${m.text} [${status}]`;
+      } else {
+        missionEl.textContent = "Daily Mission: none";
+      }
+
+      const buffs = Object.entries(state.activeBuffs)
+        .map(([k, v]) => `${k}(${v})`)
+        .join(", ");
+      buffsEl.textContent = buffs ? `Active Buffs: ${buffs}` : "Active Buffs: none";
+
+      document.querySelectorAll("button[data-action]").forEach((btn) => {
+        btn.disabled = !state.running;
+      });
+    }
+
+    function renderShop() {
+      shopList.innerHTML = "";
+      for (const item of shopItems) {
+        const wrap = document.createElement("div");
+        wrap.className = "stat";
+
+        const buyBtn = document.createElement("button");
+        buyBtn.textContent = `Buy ${item.name} (${item.cost}c)`;
+        buyBtn.onclick = () => {
+          if (!state.running) return;
+          if (state.credits < item.cost) {
+            appendLog("Not enough credits.");
+            return;
+          }
+          state.credits -= item.cost;
+          appendLog(item.apply());
+          render();
+        };
+
+        const text = document.createElement("div");
+        text.textContent = item.description;
+        wrap.appendChild(buyBtn);
+        wrap.appendChild(text);
+        shopList.appendChild(wrap);
+      }
+    }
+
+    function startGame() {
+      const difficulty = document.getElementById("difficulty").value;
+      Object.assign(state, {
+        day: 1,
+        credits: 60,
+        scrap: 0,
+        food: 2,
+        health: 90,
+        energy: 85,
+        mood: 70,
+        pressure: 0,
+        beaconLevel: 0,
+        escapeProgress: 0,
+        salvageLevel: 1,
+        droneLevel: 0,
+        detailScore: 0,
+        activeBuffs: {},
+        purchasedUpgrades: new Set(),
+        running: true,
+        difficulty,
+        decayScale: 1.0,
+        rewardScale: 1.0,
+        dailyMission: null,
+      });
+
+      if (difficulty === "chill") {
+        state.decayScale = 0.8;
+        state.rewardScale = 0.9;
+      } else if (difficulty === "nightmare") {
+        state.decayScale = 1.25;
+        state.rewardScale = 1.2;
+      }
+
+      logEl.textContent = "";
+      rollDailyMission();
+      appendLog("Run started.");
+      render();
+    }
+
+    document.getElementById("startBtn").addEventListener("click", startGame);
+    document.getElementById("toggleShop").addEventListener("click", () => {
+      shopPanel.hidden = !shopPanel.hidden;
+    });
+
+    document.querySelectorAll("button[data-action]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const choice = btn.getAttribute("data-action");
+        if (choice === "8") {
+          if (state.running) {
+            state.running = false;
+            appendLog("Mo ends this run and prepares for another shot.");
+            render();
+          }
+          return;
+        }
+        if (!state.running) return;
+        performAction(choice);
+      });
+    });
+
+    renderShop();
+    startGame();
+  </script>
+</body>
+</html>
