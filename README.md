@@ -5,7 +5,7 @@ A terminal simulator/tycoon game where Mo is trapped in the void.
 ## Play
 
 ```bash
-python /home/runner/work/mos-void/mos-void/mos_void.py
+python mos_void.py
 ```
 
 ## Goal
