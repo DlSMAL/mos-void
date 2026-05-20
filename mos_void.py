@@ -317,7 +317,6 @@ class MosVoidGame:
 
 
 def main() -> None:
-    random.seed()
     MosVoidGame().run()
 
 
