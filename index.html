@@ -138,6 +138,9 @@
     const MAX_BEACON_LEVEL = 4;
     const BEACON_CORE_PROGRESS_BONUS = 9;
     const BEACON_ENGINEERING_MULTIPLIER = 3;
+    const SALVAGE_LEVEL_BONUS = 6;
+    const DRONE_LEVEL_BONUS = 4;
+    const CRAFT_OPTIONS = ["kit", "filter", "scanner"];
 
     const state = {};
 
@@ -157,8 +160,9 @@
     const logEl = document.getElementById("log");
     const shopPanel = document.getElementById("shopPanel");
     const shopList = document.getElementById("shopList");
+    const difficultyEl = document.getElementById("difficulty");
 
-    function randomInt(min, max) {
+    function getRandomInt(min, max) {
       return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
@@ -167,7 +171,7 @@
       return Math.round(value * factor);
     }
 
-    function clamp() {
+    function clampStateValues() {
       state.health = Math.max(0, Math.min(100, state.health));
       state.energy = Math.max(0, Math.min(100, state.energy));
       state.mood = Math.max(0, Math.min(100, state.mood));
@@ -198,11 +202,11 @@
       state.mood -= scaled(5);
       state.pressure += scaled(4);
       tickBuffs();
-      clamp();
+      clampStateValues();
     }
 
     function rollDailyMission() {
-      const [text, kind, goal, rewardCredits, rewardProgress] = MISSION_DEFINITIONS[randomInt(0, MISSION_DEFINITIONS.length - 1)];
+      const [text, kind, goal, rewardCredits, rewardProgress] = MISSION_DEFINITIONS[getRandomInt(0, MISSION_DEFINITIONS.length - 1)];
       state.dailyMission = { text, kind, goal, rewardCredits, rewardProgress, progress: 0, completed: false };
     }
 
@@ -217,85 +221,85 @@
         state.credits += creditReward;
         state.escapeProgress += progressReward;
         state.detailScore += scaled(15, true);
-        clamp();
+        clampStateValues();
         return `Mission complete! +${creditReward} credits, +${progressReward}% progress.`;
       }
       return `Mission progress: ${m.progress}/${m.goal}`;
     }
 
     function salvageRun() {
-      const base = randomInt(14, 26);
-      const levelBonus = state.salvageLevel * 6;
-      const droneBonus = state.droneLevel * 4;
-      let haul = base + levelBonus + droneBonus + randomInt(-3, 3);
+      const base = getRandomInt(14, 26);
+      const levelBonus = state.salvageLevel * SALVAGE_LEVEL_BONUS;
+      const droneBonus = state.droneLevel * DRONE_LEVEL_BONUS;
+      let haul = base + levelBonus + droneBonus + getRandomInt(-3, 3);
       if ("focus" in state.activeBuffs) haul += 8;
       haul = scaled(haul, true);
       state.credits += haul;
-      state.scrap += randomInt(1, 4) + state.droneLevel;
-      state.energy -= scaled(randomInt(9, 15));
-      state.health -= scaled(randomInt(2, 7));
-      state.escapeProgress += scaled(randomInt(1, 5), true);
-      state.pressure += scaled(randomInt(1, 5));
+      state.scrap += getRandomInt(1, 4) + state.droneLevel;
+      state.energy -= scaled(getRandomInt(9, 15));
+      state.health -= scaled(getRandomInt(2, 7));
+      state.escapeProgress += scaled(getRandomInt(1, 5), true);
+      state.pressure += scaled(getRandomInt(1, 5));
       state.detailScore += scaled(6, true);
-      clamp();
+      clampStateValues();
       return `Salvage run pulled ${haul} credits and boosted your scrap reserves.`;
     }
 
     function rest() {
       if (state.food <= 0) {
         state.mood -= scaled(4);
-        clamp();
+        clampStateValues();
         return "No food to rest properly. Mo feels rough.";
       }
-      state.energy += scaled(randomInt(16, 24), true);
-      state.health += scaled(randomInt(6, 10), true);
-      state.mood += scaled(randomInt(5, 9), true);
-      state.pressure -= scaled(randomInt(2, 6), true);
+      state.energy += scaled(getRandomInt(16, 24), true);
+      state.health += scaled(getRandomInt(6, 10), true);
+      state.mood += scaled(getRandomInt(5, 9), true);
+      state.pressure -= scaled(getRandomInt(2, 6), true);
       state.detailScore += scaled(3, true);
-      clamp();
+      clampStateValues();
       return "Mo gets real rest in a quiet void pocket.";
     }
 
     function train() {
-      state.energy -= scaled(randomInt(7, 12));
-      state.health += scaled(randomInt(4, 8), true);
-      state.mood += scaled(randomInt(2, 7), true);
-      state.escapeProgress += scaled(randomInt(2, 6), true);
+      state.energy -= scaled(getRandomInt(7, 12));
+      state.health += scaled(getRandomInt(4, 8), true);
+      state.mood += scaled(getRandomInt(2, 7), true);
+      state.escapeProgress += scaled(getRandomInt(2, 6), true);
       state.activeBuffs.focus = 3;
       state.detailScore += scaled(8, true);
-      clamp();
+      clampStateValues();
       return "Mo trains hard and enters focus mode for 3 days.";
     }
 
     function engineer() {
       if (state.beaconLevel === 0) {
-        state.escapeProgress += scaled(randomInt(1, 3), true);
+        state.escapeProgress += scaled(getRandomInt(1, 3), true);
         state.energy -= scaled(8);
-        clamp();
+        clampStateValues();
         return "Mo sketches a rough beacon plan. Need a Beacon Core soon.";
       }
-      const gain = scaled(randomInt(5, 12) + (BEACON_ENGINEERING_MULTIPLIER * state.beaconLevel), true);
+      const gain = scaled(getRandomInt(5, 12) + (BEACON_ENGINEERING_MULTIPLIER * state.beaconLevel), true);
       state.escapeProgress += gain;
-      state.energy -= scaled(randomInt(8, 13));
-      state.mood += scaled(randomInt(1, 4), true);
-      state.pressure += scaled(randomInt(0, 3));
+      state.energy -= scaled(getRandomInt(8, 13));
+      state.mood += scaled(getRandomInt(1, 4), true);
+      state.pressure += scaled(getRandomInt(0, 3));
       state.detailScore += scaled(10, true);
-      clamp();
+      clampStateValues();
       return `Beacon engineering session successful: +${gain}% escape progress.`;
     }
 
     function scoutRift() {
-      const foundFood = randomInt(0, 2) + state.droneLevel;
-      const foundScrap = randomInt(2, 7) + state.droneLevel;
-      let stress = randomInt(2, 6);
+      const foundFood = getRandomInt(0, 2) + state.droneLevel;
+      const foundScrap = getRandomInt(2, 7) + state.droneLevel;
+      let stress = getRandomInt(2, 6);
       if ("null_shield" in state.activeBuffs) stress = Math.max(1, stress - 2);
       state.food += foundFood;
       state.scrap += foundScrap;
-      state.energy -= scaled(randomInt(6, 11));
-      state.mood += scaled(randomInt(1, 5), true);
+      state.energy -= scaled(getRandomInt(6, 11));
+      state.mood += scaled(getRandomInt(1, 5), true);
       state.pressure += scaled(stress);
       state.detailScore += scaled(7, true);
-      clamp();
+      clampStateValues();
       return `Rift scouting found ${foundFood} food and ${foundScrap} scrap.`;
     }
 
@@ -304,7 +308,7 @@
         return `Need at least ${CRAFT_SCRAP_COST} scrap to craft field gear.`;
       }
       state.scrap -= CRAFT_SCRAP_COST;
-      const pick = ["kit", "filter", "scanner"][randomInt(0, 2)];
+      const pick = CRAFT_OPTIONS[getRandomInt(0, CRAFT_OPTIONS.length - 1)];
       let result;
       if (pick === "kit") {
         state.health += scaled(14, true);
@@ -320,7 +324,7 @@
         result = "Mo assembled a deep scanner. Focus extends to 4 days.";
       }
       state.detailScore += scaled(12, true);
-      clamp();
+      clampStateValues();
       return result;
     }
 
@@ -329,40 +333,40 @@
       const shielded = "null_shield" in state.activeBuffs;
 
       if (roll < 0.14) {
-        const bonus = scaled(randomInt(15, 40), true);
+        const bonus = scaled(getRandomInt(15, 40), true);
         state.credits += bonus;
         return `Lucky void cache discovered: +${bonus} credits.`;
       }
 
       if (roll < 0.28) {
-        const dmg = scaled(randomInt(6, 13));
-        let pressureHit = scaled(randomInt(4, 9));
+        const dmg = scaled(getRandomInt(6, 13));
+        let pressureHit = scaled(getRandomInt(4, 9));
         if (shielded) pressureHit = Math.floor(pressureHit / 2);
         state.health -= dmg;
         state.pressure += pressureHit;
-        clamp();
+        clampStateValues();
         return "A void storm tears through camp. Mo hangs on.";
       }
 
       if (roll < 0.42) {
-        state.food += randomInt(1, 3);
+        state.food += getRandomInt(1, 3);
         state.mood += scaled(5, true);
-        clamp();
+        clampStateValues();
         return "A friendly drifter trades supplies with Mo.";
       }
 
       if (roll < 0.54) {
-        const gain = scaled(randomInt(3, 8), true);
+        const gain = scaled(getRandomInt(3, 8), true);
         state.escapeProgress += gain;
-        clamp();
+        clampStateValues();
         return `Signal anomaly mapped. Escape route clarity +${gain}%.`;
       }
 
       if (roll < BEACON_EVENT_THRESHOLD && state.beaconLevel >= BEACON_EVENT_MIN_LEVEL) {
-        const beaconBonus = scaled(randomInt(8, 14), true);
+        const beaconBonus = scaled(getRandomInt(8, 14), true);
         state.escapeProgress += beaconBonus;
         state.mood += scaled(4, true);
-        clamp();
+        clampStateValues();
         return `Beacon pulse synced perfectly: +${beaconBonus}% progress.`;
       }
 
@@ -377,13 +381,13 @@
     function buyBlanket() {
       state.mood += 12;
       state.energy += 8;
-      clamp();
+      clampStateValues();
       return "Mo wraps up in the cosmic blanket and chills out.";
     }
 
     function buyMedPatch() {
       state.health += 22;
-      clamp();
+      clampStateValues();
       return "Med patch applied. Bruises and void burns fading.";
     }
 
@@ -398,7 +402,7 @@
       if (state.droneLevel >= MAX_DRONE_LEVEL) return "Scout Drone is already maxed out.";
       state.droneLevel += 1;
       state.escapeProgress += scaled(3, true);
-      clamp();
+      clampStateValues();
       return `Scout Drone upgraded to level ${state.droneLevel}. Mapping improves.`;
     }
 
@@ -406,7 +410,7 @@
       if (state.beaconLevel >= MAX_BEACON_LEVEL) return "Beacon is already maxed out.";
       state.beaconLevel += 1;
       state.escapeProgress += scaled(BEACON_CORE_PROGRESS_BONUS, true);
-      clamp();
+      clampStateValues();
       return `Beacon boosted to level ${state.beaconLevel}. Rescue signal intensifies.`;
     }
 
@@ -539,7 +543,7 @@
     }
 
     function startGame() {
-      const difficulty = document.getElementById("difficulty").value;
+      const difficulty = difficultyEl.value;
       Object.assign(state, {
         day: 1,
         credits: 60,
