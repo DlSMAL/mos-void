@@ -49,6 +49,11 @@ MISSION_DEFINITIONS = [
 CRAFT_SCRAP_COST = 8
 BEACON_EVENT_THRESHOLD = 0.62
 BEACON_EVENT_MIN_LEVEL = 2
+MAX_DRONE_LEVEL = 3
+WIN_BEACON_LEVEL = 3
+MAX_BEACON_LEVEL = 4
+BEACON_CORE_PROGRESS_BONUS = 9
+BEACON_ENGINEERING_MULTIPLIER = 3
 
 
 @dataclass
@@ -186,7 +191,7 @@ class MosVoidGame:
         return "Scrap Magnet online: salvage runs are stronger now."
 
     def buy_drone(self, s: GameState) -> str:
-        if s.drone_level >= 3:
+        if s.drone_level >= MAX_DRONE_LEVEL:
             return "Scout Drone is already maxed out."
         s.drone_level += 1
         s.escape_progress += s.scaled(3, reward=True)
@@ -194,10 +199,10 @@ class MosVoidGame:
         return f"Scout Drone upgraded to level {s.drone_level}. Mapping improves."
 
     def buy_beacon_core(self, s: GameState) -> str:
-        if s.beacon_level >= 4:
+        if s.beacon_level >= MAX_BEACON_LEVEL:
             return "Beacon is already maxed out."
         s.beacon_level += 1
-        s.escape_progress += s.scaled(9, reward=True)
+        s.escape_progress += s.scaled(BEACON_CORE_PROGRESS_BONUS, reward=True)
         s.clamp()
         return f"Beacon boosted to level {s.beacon_level}. Rescue signal intensifies."
 
@@ -279,7 +284,10 @@ class MosVoidGame:
             s.escape_progress += s.scaled(random.randint(1, 3), reward=True)
             s.energy -= s.scaled(8)
             return "Mo sketches a rough beacon plan. Need a Beacon Core soon."
-        gain = s.scaled(random.randint(5, 12) + (3 * s.beacon_level), reward=True)
+        gain = s.scaled(
+            random.randint(5, 12) + (BEACON_ENGINEERING_MULTIPLIER * s.beacon_level),
+            reward=True,
+        )
         s.escape_progress += gain
         s.energy -= s.scaled(random.randint(8, 13))
         s.mood += s.scaled(random.randint(1, 4), reward=True)
@@ -437,12 +445,13 @@ class MosVoidGame:
         if s.pressure >= 100:
             s.running = False
             return "The void consumed the camp. Run failed."
-        if s.escape_progress >= 100 and s.beacon_level >= 3:
+        if s.escape_progress >= 100 and s.beacon_level >= WIN_BEACON_LEVEL:
             s.running = False
             return "Rescue lock achieved! Mo escapes the void in style!"
         return None
 
     def perform_action(self, choice: str) -> Optional[str]:
+        # Shop and end-run are stateful flows handled directly in play_turn.
         action_map = {
             "1": (self.salvage_run, "salvage"),
             "2": (self.rest, "rest"),
@@ -503,7 +512,10 @@ class MosVoidGame:
             "build a rescue beacon to escape."
         )
         print(BEACON_ART)
-        print("Win by reaching 100% escape progress with at least Beacon Level 3.\n")
+        print(
+            f"Win by reaching 100% escape progress with at least Beacon Level {WIN_BEACON_LEVEL} "
+            f"(max {MAX_BEACON_LEVEL}).\n"
+        )
         self.choose_difficulty()
 
         while self.state.running:
